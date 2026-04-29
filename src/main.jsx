@@ -46,6 +46,19 @@ const LANDSCAPE_NAMES = [
   "島嶼夕陽",
 ];
 
+const LANDSCAPE_POSITIONS = [
+  "center",
+  "center",
+  "center",
+  "center",
+  "38% center",
+  "center",
+  "center",
+  "center",
+  "center",
+  "center",
+];
+
 const ASSET_BASE_URL = import.meta.env.BASE_URL;
 
 const LANDSCAPE_REGIONS = Array.from({ length: STAGES_PER_WORLD }, (_, index) => {
@@ -172,6 +185,19 @@ function readRequestedStageNumber(isAdminMode) {
   }
 }
 
+function readLandscapePreviewMode(isAdminMode) {
+  if (!isAdminMode) {
+    return false;
+  }
+
+  try {
+    const params = new URLSearchParams(globalThis.location?.search ?? "");
+    return params.get("previewWorld") === "1";
+  } catch {
+    return false;
+  }
+}
+
 function getStageLandscape(stageInfo) {
   const name = LANDSCAPE_NAMES[(stageInfo.world - 1) % LANDSCAPE_NAMES.length];
   const world = String(stageInfo.world).padStart(2, "0");
@@ -179,6 +205,7 @@ function getStageLandscape(stageInfo) {
   return {
     name,
     image: `url("${ASSET_BASE_URL}landscapes/world-${world}.png")`,
+    position: LANDSCAPE_POSITIONS[(stageInfo.world - 1) % LANDSCAPE_POSITIONS.length],
   };
 }
 
@@ -189,11 +216,27 @@ function getLandscapeRevealCount(game) {
   return Math.min(STAGES_PER_WORLD, Math.max(0, completedInWorld));
 }
 
+function canHideMahjongForCompletedWorld(game) {
+  return (
+    game.stageInfo.stage === STAGES_PER_WORLD &&
+    (game.completedStageNumber ?? 0) >= game.stageInfo.world * STAGES_PER_WORLD
+  );
+}
+
 function createInitialGame(stageNumber = null, statusText = null, options = {}) {
   const isAdminMode = options.isAdminMode ?? readAdminMode();
   const stageInfo = getStageInfo(
     stageNumber ?? readRequestedStageNumber(isAdminMode),
   );
+  const landscapePreviewMode =
+    options.landscapePreviewMode ?? readLandscapePreviewMode(isAdminMode);
+  const storedCompletedStageNumber = readCompletedStageNumber();
+  const completedStageNumber = landscapePreviewMode
+    ? Math.max(
+        storedCompletedStageNumber,
+        Math.min(TOTAL_STAGES, stageInfo.world * STAGES_PER_WORLD),
+      )
+    : storedCompletedStageNumber;
   const playableBoard = createPlayableBoardRecord(
     Math.random,
     null,
@@ -215,11 +258,16 @@ function createInitialGame(stageNumber = null, statusText = null, options = {}) 
     clearedPairs: 0,
     totalPairs: countRemainingPairs(playableBoard.board),
     routeState: createInitialRouteState(playableBoard.record),
-    completedStageNumber: readCompletedStageNumber(),
+    completedStageNumber,
     isAdminMode,
+    landscapePreviewMode,
+    mahjongHidden: false,
     awaitingContinue: false,
     statusText:
-      statusText ?? `第 ${stageInfo.label} 關開始，難度 ${stageInfo.difficulty}/100。`,
+      statusText ??
+      (landscapePreviewMode
+        ? `第 ${stageInfo.world} 大關通關彩色照片預覽：背景已完整解鎖。`
+        : `第 ${stageInfo.label} 關開始，難度 ${stageInfo.difficulty}/100。`),
     won: false,
   };
 }
@@ -502,6 +550,24 @@ function useGame() {
     );
   }
 
+  function toggleMahjongVisibility() {
+    if (!canHideMahjongForCompletedWorld(game)) {
+      return;
+    }
+
+    const nextHidden = !game.mahjongHidden;
+
+    setGame({
+      ...game,
+      hint: [],
+      selected: null,
+      mahjongHidden: nextHidden,
+      statusText: nextHidden
+        ? `已隱藏第 ${game.stageInfo.world} 大關的麻將，可以查看完整通關照片。`
+        : "已重新顯示麻將。",
+    });
+  }
+
   function scheduleRemoval({
     positions,
     nextBoard,
@@ -667,6 +733,7 @@ function useGame() {
     selectStage,
     selectTile,
     showHint,
+    toggleMahjongVisibility,
   };
 }
 
@@ -842,8 +909,10 @@ function Sidebar({
   onRestartFromFirst,
   onSelectStage,
   onShowHint,
+  onToggleMahjongVisibility,
 }) {
   const remainingPairs = countRemainingPairs(game.board);
+  const canHideMahjong = canHideMahjongForCompletedWorld(game);
 
   return (
     <aside className="sidebar" aria-label="遊戲資訊">
@@ -867,6 +936,15 @@ function Sidebar({
         <button type="button" className="hint-button" onClick={onShowHint}>
           提示下一組
         </button>
+        {canHideMahjong ? (
+          <button
+            type="button"
+            className="photo-view-button"
+            onClick={onToggleMahjongVisibility}
+          >
+            {game.mahjongHidden ? "顯示麻將" : "隱藏麻將"}
+          </button>
+        ) : null}
       </div>
 
       <AdminPanel game={game} onSelectStage={onSelectStage} />
@@ -893,6 +971,7 @@ function App() {
     selectStage,
     selectTile,
     showHint,
+    toggleMahjongVisibility,
   } = useGame();
   const landscape = getStageLandscape(game.stageInfo);
   const landscapeRevealCount = getLandscapeRevealCount(game);
@@ -906,11 +985,18 @@ function App() {
         onRestartFromFirst={restartFromFirstStage}
         onSelectStage={selectStage}
         onShowHint={showHint}
+        onToggleMahjongVisibility={toggleMahjongVisibility}
       />
       <section
-        className="play-area"
+        className={[
+          "play-area",
+          game.mahjongHidden ? "play-area--mahjong-hidden" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         style={{
           "--landscape-photo": landscape.image,
+          "--landscape-position": landscape.position,
         }}
         aria-label={`遊戲棋盤，${landscape.name}風景，已解鎖 ${landscapeRevealCount} / ${STAGES_PER_WORLD} 個彩色區域`}
       >
