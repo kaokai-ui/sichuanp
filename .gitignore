@@ -1,0 +1,30 @@
+node_modules/
+dist/
+.vite/
+.cache/
+coverage/
+test-results/
+playwright-report/
+
+# Local browser profiles and visual test screenshots.
+.edge-*/
+.edge-headless*/
+.edge-*.png
+
+# Local admin scratch data.
+local-admin/
+local-admin/runtime/
+local-admin/tmp/
+local-admin/exports/
+
+# Local secrets and machine-specific settings.
+.env
+.env.local
+.env.*.local
+*.local
+
+# Logs and temporary files.
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

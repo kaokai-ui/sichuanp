@@ -1,0 +1,19 @@
+{
+  "name": "sichuanp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "generate:boards": "node scripts/generate-solvable-boards.mjs",
+    "verify:boards": "node scripts/verify-solvable-boards.mjs",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "vite": "^7.3.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {}
+}
