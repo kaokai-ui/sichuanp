@@ -46,6 +46,8 @@ const LANDSCAPE_NAMES = [
   "島嶼夕陽",
 ];
 
+const ASSET_BASE_URL = import.meta.env.BASE_URL;
+
 const LANDSCAPE_REGIONS = Array.from({ length: STAGES_PER_WORLD }, (_, index) => {
   const col = index % 5;
   const row = Math.floor(index / 5);
@@ -176,7 +178,7 @@ function getStageLandscape(stageInfo) {
 
   return {
     name,
-    image: `url("/landscapes/world-${world}.png")`,
+    image: `url("${ASSET_BASE_URL}landscapes/world-${world}.png")`,
   };
 }
 
