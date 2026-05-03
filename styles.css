@@ -375,8 +375,28 @@ button {
 }
 
 .tile-button--selected {
-  transform: translateY(-6px) scale(1.04);
-  filter: drop-shadow(0 0 12px rgba(216, 173, 88, 0.78));
+  transform: translateY(-8px) scale(1.06);
+}
+
+.tile-button--selected::after {
+  position: absolute;
+  inset: -4px;
+  border: 4px solid rgba(216, 173, 88, 0.95);
+  border-radius: calc(var(--tile-size) * 0.17);
+  content: "";
+  pointer-events: none;
+  animation: selected-border-pulse 1s ease-in-out infinite;
+}
+
+@keyframes selected-border-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
 }
 
 .tile-button--hint {
