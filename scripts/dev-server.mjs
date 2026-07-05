@@ -25,13 +25,20 @@ function localAddresses() {
 }
 
 function safePathFromUrl(requestUrl) {
-  const parsedUrl = new URL(requestUrl, `http://127.0.0.1:${port}`);
-  const pathname = decodeURIComponent(parsedUrl.pathname);
+  let pathname;
+
+  try {
+    const parsedUrl = new URL(requestUrl, `http://127.0.0.1:${port}`);
+    pathname = decodeURIComponent(parsedUrl.pathname);
+  } catch {
+    return null;
+  }
+
   const normalizedPath =
     pathname === "/" ? "/index.html" : pathname.replace(/\/+$/, "");
   const fullPath = path.normalize(path.join(rootDir, normalizedPath));
 
-  if (!fullPath.startsWith(rootDir)) {
+  if (fullPath !== rootDir && !fullPath.startsWith(rootDir + path.sep)) {
     return null;
   }
 

@@ -467,14 +467,6 @@ function ensureWinState(nextState) {
       nextState.stageInfo.number,
     );
 
-    if (nextStageNumber && !nextState.isAdminMode) {
-      saveStageNumber(nextStageNumber);
-    }
-
-    if (!nextState.isAdminMode) {
-      saveCompletedStageNumber(nextState.stageInfo.number);
-    }
-
     return {
       ...nextState,
       completedStageNumber,
@@ -485,7 +477,7 @@ function ensureWinState(nextState) {
       hint: [],
       statusText: nextStageNumber
         ? `第 ${nextState.stageInfo.label} 關通過！要繼續下一關嗎？`
-        : "第 10-10 關通過！全部關卡完成。",
+        : `第 ${nextState.stageInfo.label} 關通過！全部關卡完成。`,
     };
   }
 
@@ -495,6 +487,18 @@ function ensureWinState(nextState) {
 function useGame() {
   const [game, setGame] = useState(createInitialGame);
   const removeTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!game.won || game.isAdminMode) {
+      return;
+    }
+
+    saveCompletedStageNumber(game.stageInfo.number);
+
+    if (game.nextStageNumber) {
+      saveStageNumber(game.nextStageNumber);
+    }
+  }, [game.won, game.isAdminMode, game.stageInfo.number, game.nextStageNumber]);
 
   function clearRemoveTimer() {
     if (removeTimerRef.current) {
@@ -610,7 +614,13 @@ function useGame() {
       return;
     }
 
-    const move = hasRoutePolicy(game) ? findRouteMove(game) : findSafeMove(game.board);
+    let move = hasRoutePolicy(game) ? findRouteMove(game) : findSafeMove(game.board);
+
+    // 玩家可能走了合法但不在正解路線上的一步（部分關卡存在這種岔路），
+    // 此時路線提示會找不到步，但棋盤仍可解，改用安全步提示。
+    if (!move && hasRoutePolicy(game) && !game.routeState?.broken) {
+      move = findSafeMove(game.board);
+    }
 
     if (!move) {
       setGame({
@@ -851,7 +861,7 @@ function StagePrompt({ game, onContinue, onRestartFromFirst }) {
   if (!game.nextStageNumber) {
     return (
       <div className="stage-prompt" role="status" aria-live="polite">
-        <strong>恭喜完成 100 關</strong>
+        <strong>恭喜完成 {TOTAL_STAGES} 關</strong>
         <p>目前所有關卡都已通過，可以回到第 1-1 關重新挑戰。</p>
         <button type="button" className="continue-button" onClick={onRestartFromFirst}>
           回到第一關
@@ -897,7 +907,7 @@ function AdminPanel({ game, onSelectStage }) {
           })}
         </select>
       </label>
-      <a href="/local-admin/">開啟管理介面</a>
+      <a href={`${ASSET_BASE_URL}local-admin/`}>開啟管理介面</a>
     </div>
   );
 }

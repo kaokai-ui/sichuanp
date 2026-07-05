@@ -9,6 +9,12 @@ import {
   isTileOpen,
   removePair,
 } from "../src/game.js";
+import {
+  calculateSmokeMetrics,
+  factorial,
+  getSmokeStartStage,
+  ROUTE_LIMIT_BY_SUBSTAGE,
+} from "./route-metrics.mjs";
 
 const TARGET_COUNT = 100;
 const MIN_RATING = 0;
@@ -30,8 +36,6 @@ const PAIR_TYPES = [...FLOWER_TYPES, ...HONOR_TYPES, ...STANDARD_TYPES];
 const DEFAULT_ROWS = 6;
 const DEFAULT_COLS = 6;
 const ROUTE_COUNT_LIMIT = 999;
-const ROUTE_NODE_LIMIT = 14000;
-const ROUTE_LIMIT_BY_SUBSTAGE = [400, 200, 100, 60, 30, 15, 8, 4, 2, 1];
 const ROUTE_GROUP_TEMPLATE_BY_LIMIT = new Map([
   [400, [4, 3, 2]],
   [200, [4, 3]],
@@ -44,14 +48,6 @@ const ROUTE_GROUP_TEMPLATE_BY_LIMIT = new Map([
   [2, [2]],
   [1, []],
 ]);
-
-function getSmokeStartStage(world) {
-  if (world <= 1) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  return Math.max(1, 11 - world);
-}
 
 function getSmokeSettingsForStage(record) {
   const startStage = getSmokeStartStage(record.stage.world);
@@ -643,54 +639,6 @@ function replaySolution(board, solution) {
   return countRemainingTiles(currentBoard) === 0;
 }
 
-function countSolutionRoutes(board, options = {}) {
-  const limit = options.limit ?? ROUTE_COUNT_LIMIT;
-  const nodeLimit = options.nodeLimit ?? ROUTE_NODE_LIMIT;
-  const memo = new Map();
-  const state = { nodes: 0, capped: false };
-
-  function countFrom(currentBoard) {
-    if (state.nodes > nodeLimit) {
-      state.capped = true;
-      return limit;
-    }
-
-    const remainingTiles = countRemainingTiles(currentBoard);
-
-    if (remainingTiles === 0) {
-      return 1;
-    }
-
-    const key = getBoardKey(currentBoard);
-
-    if (memo.has(key)) {
-      return memo.get(key);
-    }
-
-    state.nodes += 1;
-    let routes = 0;
-
-    for (const move of findMoves(currentBoard)) {
-      routes += countFrom(removePair(currentBoard, move.first, move.second));
-
-      if (routes >= limit) {
-        state.capped = true;
-        routes = limit;
-        break;
-      }
-    }
-
-    memo.set(key, routes);
-    return routes;
-  }
-
-  return {
-    routeCount: countFrom(cloneBoard(board)),
-    routeCountCapped: state.capped,
-    routeNodes: state.nodes,
-  };
-}
-
 function calculateDifficulty(board, solution) {
   let currentBoard = cloneBoard(board);
   const moveCounts = [];
@@ -753,37 +701,6 @@ function calculateDifficulty(board, solution) {
   };
 }
 
-function factorial(value) {
-  let result = 1;
-
-  for (let index = 2; index <= value; index += 1) {
-    result *= index;
-  }
-
-  return result;
-}
-
-function samePosition(left, right) {
-  return left?.row === right?.row && left?.col === right?.col;
-}
-
-function sameMove(left, right) {
-  return (
-    (samePosition(left.first, right.first) && samePosition(left.second, right.second)) ||
-    (samePosition(left.first, right.second) && samePosition(left.second, right.first))
-  );
-}
-
-function sameRouteStep(step, move, board) {
-  const tile = board[move.first.row]?.[move.first.col];
-
-  if (!tile || step.type !== tile.type) {
-    return false;
-  }
-
-  return sameMove(step, move);
-}
-
 function buildRoutePolicy(solution, routeLimit = ROUTE_COUNT_LIMIT) {
   const template = ROUTE_GROUP_TEMPLATE_BY_LIMIT.get(routeLimit) ?? [];
   const routeGroupSizes = [];
@@ -815,74 +732,6 @@ function buildRoutePolicy(solution, routeLimit = ROUTE_COUNT_LIMIT) {
       first: step.first,
       second: step.second,
     })),
-  };
-}
-
-function calculateSmokeMetrics(board, routePlan, routeGroupSizes) {
-  let currentBoard = cloneBoard(board);
-  let smokePairCount = 0;
-  let smokeStepCount = 0;
-  let maxSmokePairs = 0;
-  let initialSmokePairs = 0;
-  let groupStart = 0;
-
-  for (const groupSize of routeGroupSizes) {
-    const consumed = [];
-
-    for (let offset = 0; offset < groupSize; offset += 1) {
-      const groupEnd = groupStart + groupSize;
-      const moves = findMoves(currentBoard);
-      const allowedMoves = moves.filter((move) =>
-        routePlan
-          .slice(groupStart, groupEnd)
-          .some((step, index) => {
-            const routeIndex = groupStart + index;
-            return !consumed.includes(routeIndex) && sameRouteStep(step, move, currentBoard);
-          }),
-      );
-      const smokePairs = moves.filter(
-        (move) => !allowedMoves.some((allowedMove) => sameMove(allowedMove, move)),
-      );
-
-      if (smokePairs.length > 0) {
-        smokePairCount += smokePairs.length;
-        smokeStepCount += 1;
-        maxSmokePairs = Math.max(maxSmokePairs, smokePairs.length);
-
-        if (groupStart === 0 && offset === 0) {
-          initialSmokePairs = smokePairs.length;
-        }
-      }
-
-      const routeIndex = routePlan.findIndex((step, index) => {
-        return (
-          index >= groupStart &&
-          index < groupEnd &&
-          !consumed.includes(index) &&
-          analyzePair(currentBoard, step.first, step.second).ok
-        );
-      });
-
-      if (routeIndex === -1) {
-        break;
-      }
-
-      consumed.push(routeIndex);
-      currentBoard = removePair(
-        currentBoard,
-        routePlan[routeIndex].first,
-        routePlan[routeIndex].second,
-      );
-    }
-
-    groupStart += groupSize;
-  }
-
-  return {
-    initialSmokePairs,
-    maxSmokePairs,
-    smokePairCount,
-    smokeStepCount,
   };
 }
 
@@ -1018,192 +867,38 @@ function getRouteLimitForStage(record) {
   return ROUTE_LIMIT_BY_SUBSTAGE[record.stage.stage - 1];
 }
 
-function applyWorldOneFrameBoards(stagedBoards, random, options) {
+// 依序重建各 world 的棋盤。順序（含最後的 world 1）沿用舊版巢狀呼叫的
+// 套用順序，維持隨機數流不變，確保相同 seed 產生相同資料。
+// mask 常數名稱是歷史命名，實際套用到哪個 world 以此表為準。
+const WORLD_BOARD_STEPS = [
+  { world: 5, shape: "reference-frame-62", masks: WORLD_ONE_MASKS },
+  { world: 2, shape: "reference-mound-50", masks: WORLD_TWO_MASKS },
+  { world: 6, shape: "reference-photo-frame-68", masks: WORLD_THREE_MASKS },
+  { world: 4, shape: "reference-layered-fill-60", masks: WORLD_FIVE_MASKS },
+  { world: 8, shape: "reference-frame-layered-92", masks: WORLD_SIX_MASKS },
+  { world: 7, shape: "reference-mound-layered-78", masks: WORLD_SEVEN_MASKS },
+  { world: 9, shape: "reference-photo-frame-layered-94", masks: WORLD_EIGHT_MASKS },
+  { world: 3, shape: "reference-full-layered-52", masks: WORLD_NINE_MASKS },
+  { world: 10, shape: "reference-mound-triple-92", masks: WORLD_TEN_MASKS },
+  { world: 1, shape: "full", masks: null },
+];
+
+function applyWorldBoards(stagedBoards, random, options, step) {
   return stagedBoards.map((record) => {
-    if (record.stage.world !== 5) {
+    if (record.stage.world !== step.world) {
       return record;
     }
 
-    const mask = WORLD_ONE_MASKS[record.stage.stage - 1];
-    const frameBoard = createVerifiedCandidate(
+    const mask = step.masks ? step.masks[record.stage.stage - 1] : null;
+    const board = createVerifiedCandidate(
       random,
       options,
-      "reference-frame-62",
+      step.shape,
       mask,
       getRouteLimitForStage(record),
       getSmokeSettingsForStage(record),
     );
-    return createStageRecord(frameBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldOneFullBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 1) {
-      return record;
-    }
-
-    const fullBoard = createVerifiedCandidate(
-      random,
-      options,
-      "full",
-      null,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(fullBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldTwoIrregularBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 2) {
-      return record;
-    }
-
-    const mask = WORLD_TWO_MASKS[record.stage.stage - 1];
-    const irregularBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-mound-50",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(irregularBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldThreeWideBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 6) {
-      return record;
-    }
-
-    const mask = WORLD_THREE_MASKS[record.stage.stage - 1];
-    const wideBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-photo-frame-68",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(wideBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldFiveLayeredBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 4) {
-      return record;
-    }
-
-    const mask = WORLD_FIVE_MASKS[record.stage.stage - 1];
-    const layeredBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-layered-fill-60",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(layeredBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldSixLayeredBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 8) {
-      return record;
-    }
-
-    const mask = WORLD_SIX_MASKS[record.stage.stage - 1];
-    const layeredBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-frame-layered-92",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(layeredBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldSevenLayeredBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 7) {
-      return record;
-    }
-
-    const mask = WORLD_SEVEN_MASKS[record.stage.stage - 1];
-    const layeredBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-mound-layered-78",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(layeredBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldEightLayeredBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 9) {
-      return record;
-    }
-
-    const mask = WORLD_EIGHT_MASKS[record.stage.stage - 1];
-    const layeredBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-photo-frame-layered-94",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(layeredBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldNineLayeredBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 3) {
-      return record;
-    }
-
-    const mask = WORLD_NINE_MASKS[record.stage.stage - 1];
-    const layeredBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-full-layered-52",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(layeredBoard, record.stage.number - 1);
-  });
-}
-
-function applyWorldTenTripleLayerBoards(stagedBoards, random, options) {
-  return stagedBoards.map((record) => {
-    if (record.stage.world !== 10) {
-      return record;
-    }
-
-    const mask = WORLD_TEN_MASKS[record.stage.stage - 1];
-    const layeredBoard = createVerifiedCandidate(
-      random,
-      options,
-      "reference-mound-triple-92",
-      mask,
-      getRouteLimitForStage(record),
-      getSmokeSettingsForStage(record),
-    );
-    return createStageRecord(layeredBoard, record.stage.number - 1);
+    return createStageRecord(board, record.stage.number - 1);
   });
 }
 
@@ -1283,40 +978,12 @@ async function main() {
     );
   }
 
-  const stagedBoards = applyWorldTenTripleLayerBoards(
-    applyWorldNineLayeredBoards(
-      applyWorldEightLayeredBoards(
-        applyWorldSevenLayeredBoards(
-          applyWorldSixLayeredBoards(
-            applyWorldFiveLayeredBoards(
-              applyWorldThreeWideBoards(
-                applyWorldTwoIrregularBoards(
-                  applyWorldOneFrameBoards(assignStageMetadata(boards), random, options),
-                  random,
-                  options,
-                ),
-                random,
-                options,
-              ),
-              random,
-              options,
-            ),
-            random,
-            options,
-          ),
-          random,
-          options,
-        ),
-        random,
-        options,
-      ),
-      random,
-      options,
-    ),
-    random,
-    options,
-  );
-  const routeLimitedBoards = applyWorldOneFullBoards(stagedBoards, random, options);
+  let routeLimitedBoards = assignStageMetadata(boards);
+
+  for (const step of WORLD_BOARD_STEPS) {
+    routeLimitedBoards = applyWorldBoards(routeLimitedBoards, random, options, step);
+  }
+
   await mkdir(dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, serializeBoards(routeLimitedBoards, options), "utf8");
 

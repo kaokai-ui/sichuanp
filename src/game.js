@@ -58,20 +58,6 @@ function createEmptyBoard(rows = BOARD_SIZE, cols = BOARD_SIZE) {
   return Array.from({ length: rows }, () => Array(cols).fill(null));
 }
 
-function getBoardPositions(board) {
-  const positions = [];
-
-  for (let row = 0; row < board.length; row += 1) {
-    for (let col = 0; col < board[row].length; col += 1) {
-      if (board[row][col]) {
-        positions.push({ row, col });
-      }
-    }
-  }
-
-  return positions;
-}
-
 function getFullBoardPositions(rows = BOARD_SIZE, cols = BOARD_SIZE) {
   const positions = [];
 
@@ -529,13 +515,10 @@ function getStageRecord(stageNumber) {
     return null;
   }
 
-  const orderedRecords = [...SOLVABLE_BOARDS].sort((left, right) => {
-    const leftStage = left.stage?.number ?? left.difficulty ?? 0;
-    const rightStage = right.stage?.number ?? right.difficulty ?? 0;
-    return leftStage - rightStage;
-  });
-
-  return orderedRecords[stageNumber - 1] ?? null;
+  return (
+    SOLVABLE_BOARDS.find((record) => record.stage?.number === stageNumber) ??
+    null
+  );
 }
 
 function createRecordResult(record) {
@@ -586,8 +569,4 @@ export function createPlayableBoardRecord(
       metrics: { generatedAtRuntime: true },
     },
   };
-}
-
-export function createPlayableBoard(random = Math.random, difficultyRange = null) {
-  return createPlayableBoardRecord(random, difficultyRange).board;
 }
